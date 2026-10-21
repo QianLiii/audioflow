@@ -16,11 +16,17 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import os
 import sys
+import threading
 import time
+import wave
+from datetime import datetime
 from queue import Empty, SimpleQueue
 
+from audioflow.assembler import Assembler, format_transcript
 from audioflow.asr import LlamaCppAsrClient
+from audioflow.metrics import EventLog, Metrics
 from audioflow.native import (
     AF_CHUNK_EVENT_CLOSED,
     AF_CHUNK_EVENT_DISCARDED,
@@ -47,6 +53,10 @@ def main() -> int:
     parser.add_argument("--model", default="testdata/silero_vad.onnx")
     parser.add_argument("--partial-ms", type=int, default=500)
     parser.add_argument("--max-chunk-ms", type=int, default=4000)
+    parser.add_argument("--wav", default=None,
+                        help="feed a 16 kHz mono WAV instead of the capture device")
+    parser.add_argument("--speed", type=float, default=1.0,
+                        help="playback speed for --wav (1.0 = real time)")
     args = parser.parse_args()
 
     try:
@@ -61,7 +71,18 @@ def main() -> int:
 
     clock = time.monotonic
 
+    assembler = Assembler()
+    metrics = Metrics(partial_interval=args.partial_ms / 1000.0)
+    log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__)))), "build", "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log = EventLog(os.path.join(
+        log_dir, "live-%s.jsonl" % datetime.now().strftime("%Y%m%d-%H%M%S")))
+
     def emit(event: Event) -> None:
+        assembler.on_event(event)
+        metrics.observe(event)
+        log.write(event, now=clock())
         if event.kind == "partial":
             print("  %s partial r%d  (+%.1fs, %.2fs)  %s"
                   % (fmt_time(event.t_end), event.revision, event.t_end - event.t_start,
@@ -94,8 +115,30 @@ def main() -> int:
         elif event.type == AF_EVENT_DROPPED:
             queue.put(("drop", event.dropped_frames, 0))
 
-    flow.capture_start(on_event)
-    print("listening for %.0f s ..." % args.seconds, flush=True)
+    if args.wav:
+        with wave.open(args.wav, "rb") as handle:
+            if handle.getnchannels() != 1 or handle.getsampwidth() != 2 \
+                    or handle.getframerate() != SAMPLE_RATE:
+                raise SystemExit("--wav needs 16 kHz mono 16-bit PCM")
+            pcm = handle.readframes(handle.getnframes())
+        frames = [pcm[i:i + 1024] for i in range(0, len(pcm), 1024)]
+
+        def feeder() -> None:
+            started_at = clock()
+            step = 0.032 / max(0.01, args.speed)
+            for index, frame in enumerate(frames):
+                delay = started_at + index * step - clock()
+                if delay > 0:
+                    time.sleep(delay)
+                queue.put(("audio", frame, index * 512))
+
+        threading.Thread(target=feeder, daemon=True).start()
+        print("feeding %s (%.1f s of audio, %.0fx) ..."
+              % (os.path.basename(args.wav), len(frames) * 0.032, args.speed),
+              flush=True)
+    else:
+        flow.capture_start(on_event)
+        print("listening for %.0f s ..." % args.seconds, flush=True)
 
     chunk = None                      # current scheduler chunk, if open
     next_partial = 0.0
@@ -179,11 +222,19 @@ def main() -> int:
         while sched.pump(clock()):
             pass
         flow.close()
+        log.close()
 
         print("\nframes=%d dropped=%d disc=%d | partials=%d finals=%d degraded=%d gaps=%d retries=%d lost=%d"
               % (stats["frames"], stats["dropped"], stats["disc"],
                  sched.stats.partials, sched.stats.finals, sched.stats.degraded,
                  sched.stats.gaps, sched.stats.retries, sched.stats.lost), flush=True)
+
+        print("\n--- transcript ---")
+        print(format_transcript(assembler.segments()) or "(no committed segments)")
+        print("\n--- metrics ---")
+        for key, value in metrics.snapshot().items():
+            print("  %-26s %s" % (key, value))
+        print("\nlog: %s" % log.path)
 
     return 0
 
