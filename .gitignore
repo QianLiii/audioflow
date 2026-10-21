@@ -1,0 +1,26 @@
+# CMake build output
+/build/
+/native/build/
+
+# MSVC build artifacts
+*.obj
+*.exe
+*.dll
+*.lib
+*.exp
+*.pdb
+*.ilk
+*.idb
+*.ipdb
+*.iobj
+*.res
+*.tlog
+*.log
+.vs/
+
+# Local test media (third-party content, not redistributable)
+/testdata/
+
+# Python
+__pycache__/
+*.pyc
