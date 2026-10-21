@@ -135,6 +135,12 @@ class Scheduler:
         if chunk.closed or now + 1e-9 < chunk.next_slot:
             return None
 
+        # Nothing new since the last decode: re-sending the same prefix would
+        # only burn a decode and emit a duplicate revision.
+        if chunk.start_sample + len(pcm) // 2 <= chunk.last_partial_end:
+            chunk.next_slot = now + self.p
+            return None
+
         result = self._call(chunk, pcm, kind="partial")
         chunk.next_slot = now + self.p
         if result is None:
