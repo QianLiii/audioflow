@@ -1,0 +1,6 @@
+# Keep line endings stable across checkouts: the index stores LF, and Windows
+# editors must not rewrite it on the way back in.
+* text=auto eol=lf
+*.png binary
+*.onnx binary
+*.gguf binary
