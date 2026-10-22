@@ -54,6 +54,7 @@ class AudioFlowSession:
         *,
         vad_model: str,
         partial_ms: int = 500,
+        min_partial_age: float = 0.8,
         max_chunk_ms: int = 4000,
         max_lag: float = 10.0,
         on_event: Optional[Callable[[Event], None]] = None,
@@ -70,6 +71,7 @@ class AudioFlowSession:
         self.scheduler = Scheduler(
             asr_client, self._emit,
             p=partial_ms / 1000.0, max_lag=max_lag, clock=time.monotonic,
+            min_partial_age=min_partial_age,
         )
         self.stats = {"frames": 0, "dropped": 0, "discontinuities": 0}
         self._queue: SimpleQueue = SimpleQueue()
@@ -227,7 +229,10 @@ class AudioFlowSession:
                 self._chunk = self.scheduler.open_chunk(
                     event.chunk_id, start_sample=event.start_sample,
                     now=time.monotonic())
-                self._next_partial = time.monotonic() + self.scheduler.p
+                # The first slot is exactly min_partial_age after the open, not
+                # one cadence P later: aligning to P makes the effective first
+                # partial ceil(min_age / P) * P.
+                self._next_partial = self._chunk.next_slot
                 self._last_end = event.start_sample
             elif event.type == AF_CHUNK_EVENT_CLOSED:
                 pcm_closed = self.flow.event_pcm(event)

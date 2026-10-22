@@ -37,6 +37,8 @@ def main() -> int:
     parser.add_argument("--model", default="native/model/silero_vad.onnx",
                         help="Silero VAD model, relative to the repo root by default")
     parser.add_argument("--partial-ms", type=int, default=500)
+    parser.add_argument("--min-partial-age", type=int, default=800,
+                        help="ms after a chunk opens before its first partial")
     parser.add_argument("--max-chunk-ms", type=int, default=4000)
     parser.add_argument("--wav", default=None, help="replay a 16 kHz mono WAV")
     parser.add_argument("--speed", type=float, default=1.0)
@@ -80,6 +82,7 @@ def main() -> int:
         client,
         vad_model=model,
         partial_ms=args.partial_ms,
+        min_partial_age=args.min_partial_age / 1000.0,
         max_chunk_ms=args.max_chunk_ms,
         on_event=print_event,
         log_path=log_path,

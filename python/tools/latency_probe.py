@@ -48,6 +48,7 @@ def main() -> int:
     parser.add_argument("--url", default="http://127.0.0.1:8080")
     parser.add_argument("--model", default="native/model/silero_vad.onnx")
     parser.add_argument("--partial-ms", type=int, default=500)
+    parser.add_argument("--min-partial-age", type=int, default=800)
     parser.add_argument("--max-chunk-ms", type=int, default=4000)
     args = parser.parse_args()
 
@@ -82,6 +83,7 @@ def main() -> int:
 
     session = AudioFlowSession(client, vad_model=model,
                                partial_ms=args.partial_ms,
+                               min_partial_age=args.min_partial_age / 1000.0,
                                max_chunk_ms=args.max_chunk_ms,
                                on_event=on_event)
     anchor[0] = time.monotonic()
@@ -130,6 +132,14 @@ def main() -> int:
             print("  %4.0f–%-4.0f s  n=%-4d p50 %5.0f ms  p95 %5.0f ms"
                   % (low, high, len(subset), percentile(subset, 0.5) * 1000,
                      percentile(subset, 0.95) * 1000))
+
+    if partials:
+        first: dict[int, Record] = {}
+        for record in partials:
+            first.setdefault(record.chunk_id, record)
+        first_delays = [r.wall - (anchor[0] + r.t_start) for r in first.values()]
+        print("\n=== first partial of a chunk (chunk open -> first text) ===")
+        print(row("first partial", first_delays))
 
     if len(partials) > 1:
         # Cadence matters inside a chunk. Consecutive partials from different
