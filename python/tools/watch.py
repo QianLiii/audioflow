@@ -20,6 +20,10 @@ import time
 import wave
 from datetime import datetime
 
+# Allow running this file directly, without installing the package or setting
+# PYTHONPATH.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from audioflow.asr import LlamaCppAsrClient
 from audioflow.session import AudioFlowSession
 
@@ -91,9 +95,11 @@ def draw(session: AudioFlowSession, elapsed: float, clear: bool) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--seconds", type=float, default=None)
+    parser.add_argument("--seconds", type=float, default=None,
+                        help="stop after N seconds; omit to run until Ctrl+C")
     parser.add_argument("--url", default="http://127.0.0.1:8080")
-    parser.add_argument("--model", default="testdata/silero_vad.onnx")
+    parser.add_argument("--model", default="native/model/silero_vad.onnx",
+                        help="Silero VAD model, relative to the repo root by default")
     parser.add_argument("--partial-ms", type=int, default=500)
     parser.add_argument("--max-chunk-ms", type=int, default=4000)
     parser.add_argument("--wav", default=None)
@@ -117,10 +123,11 @@ def main() -> int:
     root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     log_dir = os.path.join(root, "build", "logs")
     os.makedirs(log_dir, exist_ok=True)
+    model = args.model if os.path.isabs(args.model) else os.path.join(root, args.model)
 
     session = AudioFlowSession(
         client,
-        vad_model=args.model,
+        vad_model=model,
         partial_ms=args.partial_ms,
         max_chunk_ms=args.max_chunk_ms,
         on_event=None,
@@ -137,12 +144,13 @@ def main() -> int:
             runtime = duration / max(0.01, args.speed) + 2.0
     else:
         session.start_capture()
-        if runtime is None:
-            runtime = 60.0
+        # No --seconds means run until Ctrl+C.
+        if runtime is not None and runtime <= 0:
+            runtime = None
 
     started = time.monotonic()
     try:
-        while time.monotonic() - started < runtime:
+        while runtime is None or time.monotonic() - started < runtime:
             draw(session, time.monotonic() - started, clear)
             time.sleep(args.interval_ms / 1000.0)
     except KeyboardInterrupt:
