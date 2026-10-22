@@ -104,6 +104,48 @@ Run the server and leave it open:
 `-ngl 99` offloads every layer to the GPU. Drop it to run on the CPU; expect a
 large latency increase and a much smaller comfortable chunk rate.
 
+#### Choosing the GPU
+
+A machine with more than one Vulkan or SYCL device (a discrete card plus an
+integrated one, for example) needs an explicit choice, otherwise llama.cpp uses
+whichever it finds first. List the devices:
+
+```powershell
+.\build\llama\bin\llama-server.exe --list-devices
+```
+
+The output names them by backend prefix, for example:
+
+```
+Available devices:
+  Vulkan0: AMD Radeon RX 9070 XT (16304 MiB, ...)
+  Vulkan1: Intel(R) UHD Graphics 770 (16384 MiB, ...)
+```
+
+Pass the name to the server:
+
+```powershell
+.\build\llama\bin\llama-server.exe `
+  -m .\build\models\Qwen3-ASR-1.7B-Q8_0.gguf `
+  --mmproj .\build\models\mmproj-Qwen3-ASR-1.7B-Q8_0.gguf `
+  -ngl 99 --device Vulkan1 --host 127.0.0.1 --port 8080
+```
+
+Notes:
+
+- Names carry the backend prefix (`Vulkan0`, `SYCL0`, `CUDA0`) and change with
+  the build and the driver, so read them from `--list-devices` rather than
+  hard-coding.
+- Integrated GPUs work: the Vulkan build runs on any Windows GPU with a Vulkan
+  driver, and the SYCL build explicitly targets Intel iGPUs. They share system
+  memory bandwidth, so expect several times the decode time of a discrete card.
+  If that is not fast enough, switch to `Qwen3-ASR-0.6B`, raise `--partial-ms`,
+  or shorten `--max-chunk-ms` until `latency_probe` reports no lost finals.
+- `--no-mmproj-offload` keeps the audio projector on the CPU, which is worth a
+  try if the multimodal path misbehaves on an unusual device.
+- Splitting one model across devices (`--device dev1,dev2` plus
+  `--tensor-split`) is not useful at 1.7B and is not recommended here.
+
 Check it is up:
 
 ```powershell
@@ -188,6 +230,7 @@ are deterministic and need neither a GPU nor a server.
 | `cannot open include file: onnxruntime_c_api.h` | `ORT_ROOT` is wrong. It must contain `include\onnxruntime_c_api.h` and `lib\onnxruntime.lib`. |
 | `python` opens the Microsoft Store | The WindowsApps placeholder shadows your install. Use the full interpreter path, e.g. `& 'E:\Tools\python\python.exe'`. |
 | `llama-server not reachable` | The server process is not running, or it is on another port; pass `--url http://127.0.0.1:PORT`. |
+| The wrong GPU is doing the work | List devices with `--list-devices` and pin one with `--device`. |
 | `failed to load model` / no audio accepted | The `--mmproj` argument is missing or does not match the GGUF. |
 | Transcript stays empty while audio plays | Check the endpoint with `capture_dump.exe`: RMS near zero means nothing is rendering, or the default device is wrong. |
 | `Access is denied` creating `native\build` | A sandbox or ACL is blocking the directory; build into `build\` instead. |
