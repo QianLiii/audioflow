@@ -142,8 +142,9 @@ holds no server state: the client re-sends the accumulated audio on every
 decode and receives cumulative text. `python/audioflow/asr/llama_cpp.py`
 implements that contract.
 
-The table below documents the alternative vLLM demo service, which the failure
-policy in `ARCHITECTURE.md` was originally written against.
+The table below documents the alternative vLLM demo service. The client's
+failure policy (no idempotency key, no abort endpoint, orphan sessions expire on
+a timer) was written against that service.
 
 | Endpoint | Request | Response |
 |---|---|---|

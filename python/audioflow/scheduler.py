@@ -1,21 +1,21 @@
 """Single-lane scheduler, prototype.
 
-Implements the parts of ARCHITECTURE.md section 6 that matter for the llama.cpp
-backend and are testable without threads:
+Implements the scheduling rules that matter for the llama.cpp backend and are
+testable without threads:
 
-* one request in flight at a time (section 6.6, invariant 1);
+* one request in flight at a time;
 * partial slots every ``P`` seconds with a maximum slip ``S``;
 * finals are admitted only if they fit before ``next_slot + S``;
 * a final that misses its deadline is lost: the last partial is committed as a
-  degraded final and any uncovered tail becomes a gap (section 8.4);
+  degraded final and any uncovered tail becomes a gap;
 * connection-refused failures retry with backoff, ambiguous failures never do.
 
 Deliberate differences from the full design, all because llama.cpp cannot
 cancel a running decode:
 
 * **No preemption.** A request that has started runs to completion. The
-  scheduler only decides what to start, which is the same guarantee section 16
-  describes for a service that ignores cancellation.
+  scheduler only decides what to start, which is the most a non-cancellable
+  service can offer.
 * **Synchronous dispatch.** ``pump()`` runs one request inline. The prototype's
   caller is the chunker thread, not the audio thread, so blocking there is
   allowed. A threaded lane becomes worthwhile only once requests can outlive

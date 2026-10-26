@@ -1,7 +1,7 @@
-"""Metrics and the structured event log (ARCHITECTURE.md section 11).
+"""Metrics and the structured event log.
 
-The transcript text never enters the log: section 17 allows IDs, timings,
-outcomes, and counters only.
+The transcript text never enters the log: records carry IDs, timings, outcomes,
+and counters only.
 """
 
 from __future__ import annotations

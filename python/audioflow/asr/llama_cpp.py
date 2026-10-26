@@ -1,6 +1,6 @@
 """llama.cpp HTTP backend for AudioFlow.
 
-Contract (ARCHITECTURE.md sections 5.6 and 6.4):
+Session contract:
 
 * one session per chunker chunk;
 * the client sends only new audio, tracked as ``submitted_samples``;
@@ -65,7 +65,7 @@ class AsrResult:
 
 
 class AsrError(RuntimeError):
-    """A request failed. The caller applies the failure policy in section 6.5."""
+    """A request failed. Only connection-refused failures are safe to repeat."""
 
 
 def _wav_bytes(pcm_s16le: bytes) -> bytes:
@@ -182,7 +182,7 @@ class AsrSession:
 
     ``push`` accepts the s16le delta since the previous successful call and
     returns the cumulative transcript, or ``None`` when there is no new audio.
-    ``finish`` commits the final text (section 6.4).
+    ``finish`` commits the final text.
     """
 
     def __init__(self, client: LlamaCppAsrClient) -> None:
@@ -218,7 +218,7 @@ class AsrSession:
         sample, so this repeats the last result instead of paying for an
         identical decode. A session that received audio but never decoded is
         decoded once here; a session with no audio at all raises, because a
-        chunk that never produces audio should not open a session (section 5.6).
+        chunk that never produces audio should not open a session.
         """
         if self.last_result is not None:
             return self.last_result

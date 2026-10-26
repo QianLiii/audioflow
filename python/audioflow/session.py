@@ -1,8 +1,8 @@
 """AudioFlow session: one capture run, end to end.
 
 Owns the native capture/VAD/chunker handles, the scheduler, the assembler, and
-the metrics for a single session (ARCHITECTURE.md section 3). It is the piece a
-UI or a test drives; the tools are thin wrappers around it.
+the metrics for a single session. It is the piece a UI or a test drives; the
+tools are thin wrappers around it.
 
 Threading model
 ---------------
@@ -16,7 +16,7 @@ Sources
 -------
 ``start_capture()`` uses WASAPI loopback; ``start_file(path)`` replays a 16 kHz
 mono WAV at a chosen speed. Both feed the same queue, so everything downstream
-is source-agnostic (the ``AudioSource`` seam from section 12).
+is source-agnostic.
 """
 
 from __future__ import annotations

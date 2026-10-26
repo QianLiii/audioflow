@@ -1,4 +1,4 @@
-"""Live transcript view (ARCHITECTURE.md section 5.8: event sink).
+"""Live transcript view: the event sink for a running session.
 
 Runs a session and repaints the transcript as it grows: committed text in full
 colour, the tentative tail dimmed, degraded finals marked, gaps shown.

@@ -1,12 +1,12 @@
 """Assembler: turns scheduler events into an ordered, committed transcript.
 
-Implements ARCHITECTURE.md section 8:
+Event semantics:
 
 * a partial sets the tentative text for its chunk and never commits;
 * a final, authoritative or degraded, replaces every partial for that chunk;
 * gaps are committed ranges with no text;
 * adjacent forced-cut finals are trimmed textually, because the ASR returns no
-  word timestamps (D7, section 8.3);
+  word timestamps;
 * results are placed by ``t_start``, not arrival order, so a retried final that
   lands late still sits in the right place.
 

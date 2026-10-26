@@ -4,8 +4,8 @@ It mirrors the ``AsrClient`` surface of :class:`audioflow.asr.LlamaCppAsrClient`
 but costs no real time: latency is charged against an injected clock, so tests
 can drive the scheduler by hand.
 
-Failure injection follows the taxonomy in ARCHITECTURE.md section 6.5. The
-exception types are distinct because the retry policy depends on them:
+Failure injection covers the three cases the retry policy distinguishes. The
+exception types are separate because the policy depends on them:
 
 * :class:`ConnectionRefused` — the request never reached the service; safe to retry.
 * :class:`AmbiguousTimeout` — the request may have been consumed; never resent.
