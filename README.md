@@ -17,8 +17,7 @@ WASAPI ──512 samples──► VAD ──probability──► chunker ──s
 ```
 
 Status: the pipeline runs end to end on Windows and has been measured on live
-audio. See [ARCHITECTURE.md](ARCHITECTURE.md) for the design and
-[ASR_INTEGRATION.md](ASR_INTEGRATION.md) for the ASR backend decisions.
+audio.
 
 ## What is in the box
 
@@ -253,10 +252,6 @@ testdata/               local audio fixtures (git-ignored)
 
 ## Further reading
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) — session contract, scheduler policy, event
-  semantics, defaults.
-- [ASR_INTEGRATION.md](ASR_INTEGRATION.md) — Qwen3-ASR streaming investigation,
-  measured decode cost, and why the reference backend is llama.cpp.
 - [native/README.md](native/README.md) — the C API, build options, and the Silero
   VAD adapter.
 
