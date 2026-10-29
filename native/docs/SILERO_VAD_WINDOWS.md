@@ -3,9 +3,8 @@
 This guide builds the `af_vad` interface, the Silero VAD adapter, and the
 `vad_probe` validation tool on Windows 10 or later.
 
-The adapter is written against the ONNX Runtime C API. It is not built in the
-Linux development environment because ONNX Runtime and the model are not
-installed there. Follow these steps on the target Windows machine.
+The adapter is written against the ONNX Runtime C API. Follow these steps on
+the target Windows machine.
 
 ## What gets built
 
@@ -13,7 +12,6 @@ installed there. Follow these steps on the target Windows machine.
   chunker. The Silero adapter implements `include/audioflow/af_vad.h`.
 - `vad_probe.exe` — reads a 16 kHz mono WAV and prints one probability per
   512-new-sample model step.
-- No energy-threshold VAD is included.
 
 The adapter validates the model's input/output names and shapes at load time.
 It accepts the Silero VAD streaming interface (v5 and v6):

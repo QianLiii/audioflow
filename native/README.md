@@ -14,7 +14,7 @@ dedicated event thread. VAD and chunking run on the frames.
 - Output: 16 kHz mono s16le frames, 10/20/32/40 ms, default 32 ms.
 - The default 32 ms (512 new samples) is one Silero VAD step. The adapter adds
   the model's 64-sample rolling context internally.
-- No disk access. All buffering is in memory.
+- All buffering is in memory.
 - One capture instance. The caller owns the process lifetime.
 - Event callback runs on the delivery thread. It must not block and must not
   call `af_capture_stop`.
@@ -47,8 +47,7 @@ Events:
    float32 or s16le, any channel count, downmixed to mono, then resampled to
    16 kHz by a windowed-sinc low-pass filter and linear interpolation.
 
-The fallback resampler is intentionally simple. It is not a high-end DSP
-component, but it removes the aliasing a bare decimator would introduce.
+The fallback resampler removes the aliasing a bare decimator would introduce.
 
 ## Threading and buffering
 
@@ -69,8 +68,8 @@ idleness so the downstream VAD and chunker see a continuous timeline.
 ## VAD
 
 `include/audioflow/af_vad.h` defines the speech probability interface.
-**Silero VAD** (v6.2.2 streaming model; v5-compatible I/O) through ONNX
-Runtime is mandatory. No other VAD backend is included.
+**Silero VAD** (v6.2.2 streaming model; v5-compatible I/O) runs through ONNX
+Runtime.
 
 - ONNX Runtime is required for every build. Set `-DORT_ROOT=<onnxruntime root>`.
 - `vad_probe.exe` validates a model against a 16 kHz mono WAV.
@@ -142,9 +141,8 @@ holds no server state: the client re-sends the accumulated audio on every
 decode and receives cumulative text. `python/audioflow/asr/llama_cpp.py`
 implements that contract.
 
-The table below documents the alternative vLLM demo service. The client's
-failure policy (no idempotency key, no abort endpoint, orphan sessions expire on
-a timer) was written against that service.
+The table below documents the alternative vLLM demo service. It has no
+idempotency key and no abort endpoint; orphan sessions expire on a timer.
 
 | Endpoint | Request | Response |
 |---|---|---|
@@ -165,9 +163,10 @@ Integration rules:
   expires abandoned sessions after 10 minutes.
 - The demo has no idempotency key. Do not retry an ambiguous `/api/chunk`
   timeout; finish the session and emit the last cumulative text as degraded.
-- No disk access and no local audio URL server.
+- Audio is carried in the request body.
 
-The client-side ASR module and scheduler are not implemented yet.
+The only shipped client is `python/audioflow/asr/llama_cpp.py`, for the
+llama.cpp service; nothing implements the vLLM demo contract.
 
 ## Build
 
@@ -247,7 +246,7 @@ discontinuity, and drop events. Press Ctrl+C to stop.
 
 - Endpoint loopback only. Per-application capture needs process loopback
   (`ActivateAudioInterfaceAsync`), a separate source implementation.
-- No echo cancellation; endpoint loopback does not need it.
+- No echo cancellation.
 - The fallback conversion supports float32 and s16le mix formats. Other mix
   formats (24-bit packed, 32-bit integer) return `AF_ERR_FORMAT`.
 - The capture callback must be fast. A slow callback fills the ring; the

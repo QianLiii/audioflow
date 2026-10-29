@@ -1,8 +1,7 @@
 """ASR layer.
 
 ``AsrClient`` is transport-neutral. The reference backend is a local llama.cpp
-server running a Qwen3-ASR GGUF; a vLLM demo service can be added behind the
-same interface.
+server running a Qwen3-ASR GGUF.
 """
 
 from .llama_cpp import (

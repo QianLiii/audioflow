@@ -1,7 +1,6 @@
-"""Single-lane scheduler, prototype.
+"""Single-lane scheduler.
 
-Implements the scheduling rules that matter for the llama.cpp backend and are
-testable without threads:
+Scheduling rules:
 
 * one request in flight at a time;
 * partial slots every ``P`` seconds with a maximum slip ``S``;
@@ -10,18 +9,11 @@ testable without threads:
   degraded final and any uncovered tail becomes a gap;
 * connection-refused failures retry with backoff, ambiguous failures never do.
 
-Deliberate differences from the full design, all because llama.cpp cannot
-cancel a running decode:
-
-* **No preemption.** A request that has started runs to completion. The
-  scheduler only decides what to start, which is the most a non-cancellable
-  service can offer.
-* **Synchronous dispatch.** ``pump()`` runs one request inline. The prototype's
-  caller is the chunker thread, not the audio thread, so blocking there is
-  allowed. A threaded lane becomes worthwhile only once requests can outlive
-  one pump.
-* Partial slots are driven by the caller: it takes the chunker snapshot and
-  calls :meth:`submit_partial`. The scheduler owns the timing decisions.
+llama.cpp cannot cancel a running decode, so a started request runs to
+completion and the scheduler only chooses what to start. ``pump()`` runs one
+request inline on the caller's thread (the chunker thread). Partial slots are
+driven by the caller: it takes the chunker snapshot and calls
+:meth:`submit_partial`; the scheduler owns the timing decisions.
 
 Time is passed in explicitly so tests can drive it with a virtual clock.
 """

@@ -8,17 +8,12 @@ Session contract:
 * ``finish`` returns the committed final text.
 
 llama.cpp has no server-side session state, so the session object owns the
-accumulated PCM and re-sends it on every decode. That is the same "re-feed
-all audio" behaviour as the upstream Qwen3-ASR streaming implementation
-(``qwen_asr/inference/qwen3_asr.py``), minus the ``chunk_size_sec`` buffering
-and token rollback, which exist there to save GPU work. With a local GGUF the
-decode is cheap enough that the extra machinery is not worth its complexity.
+accumulated PCM and re-sends it on every decode.
 
 Measured on an RX 9070 XT (Vulkan, Qwen3-ASR-1.7B Q8_0): ~0.02 s of model time
 per second of audio, so a 4 s chunk re-fed four times costs ~0.4 s.
 
-One instance is single-threaded by design: AudioFlow allows one request in
-flight (sections 6.6, invariant 1).
+One instance handles one request in flight at a time.
 """
 
 from __future__ import annotations
@@ -73,7 +68,7 @@ def _wav_bytes(pcm_s16le: bytes) -> bytes:
 
     llama.cpp sniffs the container with miniaudio, so raw PCM cannot be posted
     directly. The wrapper is built in memory: AudioFlow never writes audio to
-    disk (D1).
+    disk.
     """
     size = len(pcm_s16le)
     header = struct.pack(
@@ -119,7 +114,7 @@ class LlamaCppAsrClient:
         return AsrSession(self)
 
     def close(self) -> None:
-        """Nothing to release; kept for interface symmetry."""
+        """Nothing to release."""
 
     # -- one-shot ----------------------------------------------------------
 
@@ -214,11 +209,9 @@ class AsrSession:
     def finish(self) -> AsrResult:
         """Commit the final transcript.
 
-        With llama.cpp the previous decode already covered every submitted
-        sample, so this repeats the last result instead of paying for an
-        identical decode. A session that received audio but never decoded is
-        decoded once here; a session with no audio at all raises, because a
-        chunk that never produces audio should not open a session.
+        The previous decode already covered every submitted sample, so this
+        repeats the last result. A session that received audio but never
+        decoded is decoded once here; a session with no audio at all raises.
         """
         if self.last_result is not None:
             return self.last_result

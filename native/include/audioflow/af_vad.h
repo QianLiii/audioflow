@@ -4,9 +4,9 @@
 /*
  * Speech probability interface for AudioFlow.
  *
- * Silero VAD (v5 or v6 streaming interface) through ONNX Runtime. This is the
- * VAD implementation; no other backend is supported. Silero VAD and ONNX
- * Runtime are MIT licensed; see THIRD_PARTY_NOTICES.md at the repository root.
+ * Silero VAD (v5 or v6 streaming interface) through ONNX Runtime is the VAD
+ * implementation. Silero VAD and ONNX Runtime are MIT licensed; see
+ * THIRD_PARTY_NOTICES.md at the repository root.
  *
  * Input is 16 kHz mono s16le. The caller may feed arbitrary sample counts;
  * the adapter buffers them into 512-sample steps. Silero v5/v6 also requires a
