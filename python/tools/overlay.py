@@ -148,6 +148,10 @@ class Overlay:
         self._last_text = ""
         self._last_log_time = time.monotonic()
         self._last_chunk_id = None
+        # Chunk that was on screen when the silence timer hid the bar. It is
+        # retired: the next chunk starts a fresh view instead of resurrecting it.
+        self._hidden_chunk_id = None
+        self._shown_chunk_id = None
         self._visible = True
         self._user_hidden = False
         self._ctrl_down = False
@@ -362,6 +366,11 @@ class Overlay:
         except Exception:  # noqa: BLE001 - a torn read must not kill the UI
             return None, None
         segments = [segment for segment in segments if segment.text.strip()]
+        if self._hidden_chunk_id is not None:
+            # Chunk ids are monotonic, so everything up to and including the
+            # retired chunk belongs to the previous burst.
+            segments = [segment for segment in segments
+                        if segment.chunk_id > self._hidden_chunk_id]
         groups: list[tuple[int, object]] = []
         for segment in segments:
             if groups and groups[-1][0] == segment.chunk_id:
@@ -417,9 +426,10 @@ class Overlay:
         stats = self.session.stats
         t_end = current.t_end if current is not None else 0.0
         age_ms = (now - self.session.started_at - t_end) * 1000.0 if current else 0.0
-        logging.info("UI v=%d dt=%.0fms qlag=%.0fms(max %.0f) asr=%.0fms(max %.0f) "
+        logging.info("UI v=%d chunk=%s dt=%.0fms qlag=%.0fms(max %.0f) asr=%.0fms(max %.0f) "
                      "t_end=%.2fs age=%.0fms text=%r",
-                     version, (now - self._last_log_time) * 1000.0,
+                     version, current.chunk_id if current else None,
+                     (now - self._last_log_time) * 1000.0,
                      stats.get("queue_lag_ms", 0.0), stats.get("queue_lag_max_ms", 0.0),
                      stats.get("asr_ms", 0.0), stats.get("asr_max_ms", 0.0),
                      t_end, age_ms, current.text if current else "")
@@ -477,6 +487,8 @@ class Overlay:
 
             if signature.strip():
                 now = time.monotonic()
+                if current is not None:
+                    self._shown_chunk_id = current.chunk_id
                 if current is not None and current.chunk_id != self._last_chunk_id:
                     self._last_chunk_id = current.chunk_id
                     logging.info("chunk %d: first text %.0f ms after open "
@@ -501,7 +513,9 @@ class Overlay:
                 and time.monotonic() - self._last_change > self.config.hide_after_s):
             self.canvas.delete("all")
             self._visible = False
-            logging.info("hidden after %.1f s of silence", self.config.hide_after_s)
+            self._hidden_chunk_id = self._shown_chunk_id
+            logging.info("hidden after %.1f s of silence (retiring chunk %s)",
+                         self.config.hide_after_s, self._hidden_chunk_id)
 
         if self.args.self_test and time.monotonic() - self.started > self.args.self_test:
             logging.info("self-test finished")
