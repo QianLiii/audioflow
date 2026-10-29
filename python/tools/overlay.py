@@ -145,6 +145,7 @@ class Overlay:
         self._stopping = False
         self._last_change = time.monotonic()
         self._last_drawn = None
+        self._last_text = ""
         self._visible = True
         self._user_hidden = False
         self._ctrl_down = False
@@ -348,11 +349,17 @@ class Overlay:
     # -- rendering ---------------------------------------------------------
 
     def _lines(self):
-        """Return (previous_segment, current_segment); either may be None."""
+        """Return (previous_segment, current_segment), skipping empty results.
+
+        A chunk opened on room noise often transcribes to an empty string.
+        Showing that would blank the bar and reset the silence timer, so empty
+        segments are dropped and the previous text stays on screen.
+        """
         try:
-            segments = self.session.tail(2)
+            segments = self.session.tail(4)
         except Exception:  # noqa: BLE001 - a torn read must not kill the UI
             return None, None
+        segments = [segment for segment in segments if segment.text.strip()]
         groups: list[tuple[int, object]] = []
         for segment in segments:
             if groups and groups[-1][0] == segment.chunk_id:
@@ -380,16 +387,16 @@ class Overlay:
             self.width // 2, y, text=text, fill=colour,
             font=self.font, width=self.width - 60, justify="center", anchor="n")
 
-    def _draw(self) -> None:
+    def _draw(self, previous, current) -> str:
+        """Draw the two lines; return the signature of what is on screen."""
         self.canvas.delete("all")
-        previous, current = self._lines()
 
         if not self.healthy and not self.args.fake:
             self._draw_text(self.line_height // 2, "[ASR 未连接]", STATUS_COLOR)
-            return
+            return "[offline]"
 
         if current is None:
-            return
+            return ""
 
         if previous is not None and self.config.show_previous:
             colour = (self.config.tentative_color if previous.provisional
@@ -401,9 +408,11 @@ class Overlay:
                   else self.config.degraded_color if current.degraded
                   else self.config.text_color)
         self._draw_text(self.line_height + self.stroke, current.text, colour)
+        return "%s\n%s" % (previous.text if previous else "", current.text)
 
     def refresh(self) -> None:
-        self._draw()
+        previous, current = self._lines()
+        self._last_text = self._draw(previous, current)
         self._visible = True
 
     def toggle_visible(self) -> None:
@@ -444,14 +453,24 @@ class Overlay:
 
         if version is not None and version != self._last_drawn:
             self._last_drawn = version
-            self._last_change = time.monotonic()
-            # New text always brings the bar back, unless the user hid it from
-            # the tray on purpose.
-            if not self._user_hidden:
-                if not self._visible:
-                    logging.info("shown again on new text")
-                self._visible = True
-                self.refresh()
+            previous, current = self._lines()
+            if not self.healthy and not self.args.fake:
+                signature = "[offline]"
+            else:
+                signature = "%s\n%s" % (previous.text if previous else "",
+                                        current.text if current else "")
+
+            if signature.strip():
+                if signature != self._last_text:
+                    self._last_text = signature
+                    self._last_change = time.monotonic()
+                if not self._user_hidden:
+                    if not self._visible:
+                        logging.info("shown again on new text")
+                    self._visible = True
+                    self._draw(previous, current)
+            # An empty result keeps whatever is on screen and does not reset the
+            # silence timer.
 
         if (self.config.hide_after_s > 0 and self._visible and not self._user_hidden
                 and time.monotonic() - self._last_change > self.config.hide_after_s):
