@@ -76,7 +76,10 @@ class AudioFlowSession:
             p=partial_ms / 1000.0, max_lag=max_lag, clock=time.monotonic,
             min_partial_age=min_partial_age,
         )
-        self.stats = {"frames": 0, "dropped": 0, "discontinuities": 0}
+        self.stats = {"frames": 0, "dropped": 0, "discontinuities": 0,
+                      "queue_lag_ms": 0.0, "queue_lag_max_ms": 0.0,
+                      "asr_ms": 0.0, "asr_max_ms": 0.0}
+        self.started_at = 0.0
         self._lock = threading.Lock()
         self._version = 0
         self._queue: SimpleQueue = SimpleQueue()
@@ -114,8 +117,9 @@ class AudioFlowSession:
                 delay = started + index * step - time.monotonic()
                 if delay > 0:
                     time.sleep(delay)
-                self._queue.put(("audio", frame, index * FRAME_SAMPLES))
-            self._queue.put(("eof", b"", 0))
+                self._queue.put(("audio", frame, index * FRAME_SAMPLES,
+                                 time.monotonic()))
+            self._queue.put(("eof", b"", 0, time.monotonic()))
 
         threading.Thread(target=feeder, daemon=True).start()
 
@@ -177,17 +181,17 @@ class AudioFlowSession:
         if event.type == AF_EVENT_AUDIO:
             pcm = ctypes.string_at(ctypes.addressof(event.samples),
                                    event.sample_count * 2)
-            self._queue.put(("audio", pcm, int(event.qpc_position)))
+            self._queue.put(("audio", pcm, int(event.qpc_position),
+                             time.monotonic()))
         elif event.type == AF_EVENT_DISCONTINUITY:
-            self._queue.put(("disc", event.reason, 0))
+            self._queue.put(("disc", event.reason, 0, time.monotonic()))
         elif event.type == AF_EVENT_DROPPED:
-            self._queue.put(("drop", event.dropped_frames, 0))
+            self._queue.put(("drop", event.dropped_frames, 0, time.monotonic()))
 
     # -- worker ------------------------------------------------------------
 
     def _start_worker(self) -> None:
-        import threading
-
+        self.started_at = time.monotonic()
         self._worker = threading.Thread(target=self._run, name="audioflow-worker",
                                         daemon=True)
         self._worker.start()
@@ -202,8 +206,12 @@ class AudioFlowSession:
             if message is None:
                 break
 
-            kind, payload, qpc = message
+            kind, payload, qpc, enqueued = message
             if kind == "audio":
+                lag_ms = (time.monotonic() - enqueued) * 1000.0
+                self.stats["queue_lag_ms"] = lag_ms
+                if lag_ms > self.stats["queue_lag_max_ms"]:
+                    self.stats["queue_lag_max_ms"] = lag_ms
                 self._handle_audio(payload, qpc)
             elif kind == "disc":
                 self._handle_discontinuity(payload)
@@ -218,14 +226,25 @@ class AudioFlowSession:
 
     def _service(self, now: float) -> None:
         if self._chunk is not None and now >= self._next_partial:
-            snap = self.flow.chunker_snapshot()
-            if snap is not None:
-                pcm = self.flow.event_pcm(snap)
-                self.flow.release_event(snap)
-                if pcm:
-                    self.scheduler.submit_partial(self._chunk, pcm, now)
-                    self._last_end = self._chunk.start_sample + len(pcm) // 2
-            self._next_partial = now + self.scheduler.p
+            # Backpressure: when the worker is already behind the audio clock,
+            # skip this slot rather than queue another request behind it. The
+            # chunker keeps running, so the next slot carries the skipped audio.
+            if self.stats["queue_lag_ms"] < 800.0:
+                snap = self.flow.chunker_snapshot()
+                if snap is not None:
+                    pcm = self.flow.event_pcm(snap)
+                    self.flow.release_event(snap)
+                    if pcm:
+                        started = time.perf_counter()
+                        self.scheduler.submit_partial(self._chunk, pcm, now)
+                        elapsed_ms = (time.perf_counter() - started) * 1000.0
+                        self.stats["asr_ms"] = elapsed_ms
+                        if elapsed_ms > self.stats["asr_max_ms"]:
+                            self.stats["asr_max_ms"] = elapsed_ms
+                        self._last_end = self._chunk.start_sample + len(pcm) // 2
+            # Reschedule from the real clock: a request that overran its slot
+            # must not trigger an immediate follow-up.
+            self._next_partial = time.monotonic() + self.scheduler.p
 
         while self.scheduler.pump(now):
             pass

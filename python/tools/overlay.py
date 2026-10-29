@@ -146,6 +146,8 @@ class Overlay:
         self._last_change = time.monotonic()
         self._last_drawn = None
         self._last_text = ""
+        self._last_log_time = time.monotonic()
+        self._last_chunk_id = None
         self._visible = True
         self._user_hidden = False
         self._ctrl_down = False
@@ -410,6 +412,19 @@ class Overlay:
         self._draw_text(self.line_height + self.stroke, current.text, colour)
         return "%s\n%s" % (previous.text if previous else "", current.text)
 
+    def _log_update(self, previous, current, version: int, now: float) -> None:
+        """One line per UI update: where the time went between audio and pixel."""
+        stats = self.session.stats
+        t_end = current.t_end if current is not None else 0.0
+        age_ms = (now - self.session.started_at - t_end) * 1000.0 if current else 0.0
+        logging.info("UI v=%d dt=%.0fms qlag=%.0fms(max %.0f) asr=%.0fms(max %.0f) "
+                     "t_end=%.2fs age=%.0fms text=%r",
+                     version, (now - self._last_log_time) * 1000.0,
+                     stats.get("queue_lag_ms", 0.0), stats.get("queue_lag_max_ms", 0.0),
+                     stats.get("asr_ms", 0.0), stats.get("asr_max_ms", 0.0),
+                     t_end, age_ms, current.text if current else "")
+        self._last_log_time = now
+
     def refresh(self) -> None:
         previous, current = self._lines()
         self._last_text = self._draw(previous, current)
@@ -461,6 +476,16 @@ class Overlay:
                                         current.text if current else "")
 
             if signature.strip():
+                now = time.monotonic()
+                if current is not None and current.chunk_id != self._last_chunk_id:
+                    self._last_chunk_id = current.chunk_id
+                    logging.info("chunk %d: first text %.0f ms after open "
+                                 "(audio %.2f-%.2f s)",
+                                 current.chunk_id,
+                                 (now - self.session.started_at - current.t_start) * 1000.0,
+                                 current.t_start, current.t_end)
+                self._log_update(previous, current, version, now)
+
                 if signature != self._last_text:
                     self._last_text = signature
                     self._last_change = time.monotonic()
