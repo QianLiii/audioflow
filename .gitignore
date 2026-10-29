@@ -24,3 +24,6 @@
 # Python
 __pycache__/
 *.pyc
+
+# Local configuration and overlay state
+/config.toml

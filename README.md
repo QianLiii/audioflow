@@ -174,6 +174,30 @@ python python\tools\watch.py --wav file.wav     # replay a file through the live
 python python\tools\latency_probe.py --seconds 60   # latency distribution
 ```
 
+#### Subtitle overlay (GUI)
+
+The terminal view is for testing. The product surface is a transparent,
+always-on-top subtitle bar:
+
+```powershell
+pythonw python\tools\overlay.py
+```
+
+- Two lines: the previous chunk above, the live chunk below. A chunk keeps its
+  line after its final arrives and only moves up when the next chunk produces
+  its first partial, so the bar does not blink between chunks.
+- Click-through, so it never blocks the video underneath. Hold **Ctrl** to
+  interact: drag it anywhere, and the position is remembered.
+- Hidden after 3 s of silence, and it comes back on the next partial. Set
+  `hide_after_s = 0` to leave it on screen.
+- Quits from the tray icon; run it with `pythonw.exe` (next to `python.exe`) so
+  no console window appears.
+- `[ASR 未连接]` appears while the server is down, and it reconnects on its own.
+
+Configuration: copy `config.example.toml` to `config.toml` (git-ignored) and
+edit. Flags: `--fake` (no server needed), `--wav file.wav`, `--self-test 10`,
+`--no-hide`.
+
 ### 4. Verify the stack without any audio
 
 ```powershell

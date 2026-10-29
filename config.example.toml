@@ -1,0 +1,23 @@
+# Copy this file to config.toml and edit it. config.toml is ignored by git.
+# Every key is optional; the values below are the defaults.
+# Command-line flags override whatever is set here.
+
+[asr]
+url = "http://127.0.0.1:8080"
+partial_ms = 250          # partial cadence P
+min_partial_age = 300     # ms between a chunk opening and its first partial
+max_chunk_ms = 4000       # maximum chunk length U
+
+[ui]
+font_family = "Microsoft YaHei UI"
+font_size = 28
+width_ratio = 0.8         # fraction of the screen width
+bottom_margin = 80        # px from the bottom edge on first run
+hide_after_s = 3.0        # hide the subtitle after this much silence; 0 keeps it
+show_previous = true      # show the previous chunk above the live one
+text_color = "#FFFFFF"
+tentative_color = "#B9B9B9"
+degraded_color = "#E8C46A"
+
+[vad]
+vad_model = "native/model/silero_vad.onnx"
