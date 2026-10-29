@@ -29,6 +29,7 @@ import tomllib
 from dataclasses import dataclass, field
 
 import tkinter as tk
+import tkinter.font as tkfont
 
 # Allow running this file directly.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -159,12 +160,25 @@ class Overlay:
         screen_w = self.root.winfo_screenwidth()
         screen_h = self.root.winfo_screenheight()
         self.width = int(screen_w * config.width_ratio)
-        self.line_height = int(config.font_size * 1.45)
-        self.height = self.line_height * 2 + int(config.font_size * 0.4)
+
+        # Sizes in points are scaled by the DPI, so the line height has to come
+        # from the font metrics, not from the point size.
+        self.font = tkfont.Font(root=self.root, family=config.font_family,
+                                size=config.font_size, weight="bold")
+        self.line_height = self.font.metrics("linespace")
+        self.stroke = max(2, round(self.font.metrics("ascent") * 0.09))
+        self.height = self.line_height * 2 + self.stroke * 2
 
         state = self._load_state()
         x = state.get("x", (screen_w - self.width) // 2)
         y = state.get("y", screen_h - self.height - config.bottom_margin)
+        # Keep the bottom edge anchored when the bar changes height (font size),
+        # then clamp so a stale position can never put it off screen.
+        saved_height = state.get("h")
+        if saved_height and int(saved_height) != self.height:
+            y = int(y) - (self.height - int(saved_height))
+        x = max(0, min(int(x), screen_w - self.width))
+        y = max(0, min(int(y), screen_h - self.height))
 
         # Realise the window at its final size before going borderless: with
         # overrideredirect set first, Tk can leave the toplevel unmapped at 1x1.
@@ -323,7 +337,8 @@ class Overlay:
     def _save_state(self) -> None:
         try:
             with open(self._state_path(), "w", encoding="utf-8") as handle:
-                json.dump({"x": self.root.winfo_x(), "y": self.root.winfo_y()}, handle)
+                json.dump({"x": self.root.winfo_x(), "y": self.root.winfo_y(),
+                           "h": self.root.winfo_height()}, handle)
         except OSError as exc:
             logging.warning("could not save state: %s", exc)
 
@@ -350,15 +365,17 @@ class Overlay:
     def _draw_text(self, y: int, text: str, colour: str) -> None:
         if not text:
             return
-        font = (self.config.font_family, self.config.font_size, "bold")
-        offsets = ((-2, -2), (2, -2), (-2, 2), (2, 2), (0, -3), (0, 3), (-3, 0), (3, 0))
+        stroke = self.stroke
+        offsets = ((-stroke, 0), (stroke, 0), (0, -stroke), (0, stroke),
+                   (-stroke, -stroke), (stroke, -stroke),
+                   (-stroke, stroke), (stroke, stroke))
         for dx, dy in offsets:
             self.canvas.create_text(
                 self.width // 2 + dx, y + dy, text=text, fill="#000000",
-                font=font, width=self.width - 60, justify="center", anchor="n")
+                font=self.font, width=self.width - 60, justify="center", anchor="n")
         self.canvas.create_text(
             self.width // 2, y, text=text, fill=colour,
-            font=font, width=self.width - 60, justify="center", anchor="n")
+            font=self.font, width=self.width - 60, justify="center", anchor="n")
 
     def _draw(self) -> None:
         self.canvas.delete("all")
@@ -375,12 +392,12 @@ class Overlay:
             colour = (self.config.tentative_color if previous.provisional
                       else self.config.degraded_color if previous.degraded
                       else self.config.text_color)
-            self._draw_text(0, previous.text, colour)
+            self._draw_text(self.stroke, previous.text, colour)
 
         colour = (self.config.tentative_color if current.provisional
                   else self.config.degraded_color if current.degraded
                   else self.config.text_color)
-        self._draw_text(self.line_height - 6, current.text, colour)
+        self._draw_text(self.line_height + self.stroke, current.text, colour)
 
     def refresh(self) -> None:
         self._draw()
