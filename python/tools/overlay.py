@@ -132,6 +132,8 @@ class Overlay:
             self.config.min_partial_age = args.min_partial_age
         if args.no_hide:
             self.config.hide_after_s = 0.0
+        if args.hide_after is not None:
+            self.config.hide_after_s = args.hide_after
         if args.console:
             self.config.hide_after_s = 0.0
 
@@ -144,6 +146,7 @@ class Overlay:
         self._last_change = time.monotonic()
         self._last_drawn = None
         self._visible = True
+        self._user_hidden = False
         self._ctrl_down = False
         self._drag_origin = None
 
@@ -404,12 +407,14 @@ class Overlay:
         self._visible = True
 
     def toggle_visible(self) -> None:
-        self._visible = not self._visible
-        if self._visible:
-            self.refresh()
-        else:
+        self._user_hidden = not self._user_hidden
+        if self._user_hidden:
+            self._visible = False
             self.canvas.delete("all")
             self._last_drawn = None
+        else:
+            self._visible = True
+            self.refresh()
 
     # -- loop --------------------------------------------------------------
 
@@ -440,13 +445,19 @@ class Overlay:
         if version is not None and version != self._last_drawn:
             self._last_drawn = version
             self._last_change = time.monotonic()
-            if self._visible:
+            # New text always brings the bar back, unless the user hid it from
+            # the tray on purpose.
+            if not self._user_hidden:
+                if not self._visible:
+                    logging.info("shown again on new text")
+                self._visible = True
                 self.refresh()
 
-        if (self.config.hide_after_s > 0 and self._visible
+        if (self.config.hide_after_s > 0 and self._visible and not self._user_hidden
                 and time.monotonic() - self._last_change > self.config.hide_after_s):
             self.canvas.delete("all")
             self._visible = False
+            logging.info("hidden after %.1f s of silence", self.config.hide_after_s)
 
         if self.args.self_test and time.monotonic() - self.started > self.args.self_test:
             logging.info("self-test finished")
@@ -507,6 +518,8 @@ def main() -> int:
     parser.add_argument("--speed", type=float, default=1.0)
     parser.add_argument("--fake", action="store_true", help="no ASR server needed")
     parser.add_argument("--no-hide", action="store_true")
+    parser.add_argument("--hide-after", type=float, default=None,
+                        help="seconds of silence before hiding; 0 keeps it visible")
     parser.add_argument("--console", action="store_true", help="keep text on screen")
     parser.add_argument("--self-test", type=float, default=0.0)
     args = parser.parse_args()
