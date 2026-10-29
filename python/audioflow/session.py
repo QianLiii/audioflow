@@ -9,8 +9,10 @@ Threading model
 * The capture callback runs on the DLL's delivery thread and only enqueues.
 * One worker thread runs VAD, the chunker, the ASR requests, and the assembler.
   It never blocks the capture path.
-* Public methods (``start_*``, ``stop``, ``render``) are meant to be called from
-  the owner's thread; ``render`` is only safe after ``stop``.
+* Public methods (``start_*``, ``stop``) are meant to be called from the
+  owner's thread. The query methods (``render``, ``tail``, ``transcript``,
+  ``snapshot``) take a lock and return snapshots, so a UI thread can poll them
+  while the worker runs.
 
 Sources
 -------
@@ -23,6 +25,7 @@ from __future__ import annotations
 
 import ctypes
 import os
+import threading
 import time
 import wave
 from queue import Empty, SimpleQueue
@@ -74,6 +77,8 @@ class AudioFlowSession:
             min_partial_age=min_partial_age,
         )
         self.stats = {"frames": 0, "dropped": 0, "discontinuities": 0}
+        self._lock = threading.Lock()
+        self._version = 0
         self._queue: SimpleQueue = SimpleQueue()
         self._worker: Optional[object] = None
         self._stop = False
@@ -128,13 +133,42 @@ class AudioFlowSession:
     # -- queries -----------------------------------------------------------
 
     def render(self) -> list[Segment]:
-        return self.assembler.render()
+        """Snapshot of committed text plus the tentative overlay, by time."""
+        with self._lock:
+            return list(self.assembler.render())
 
     def transcript(self) -> str:
-        return self.assembler.transcript()
+        with self._lock:
+            return self.assembler.transcript()
+
+    def tail(self, max_chunks: int = 2) -> list[Segment]:
+        """The last ``max_chunks`` chunks as segments, in time order.
+
+        The overlay uses this rather than ``render()``: it needs chunk
+        boundaries, not the whole document. Gaps are dropped, because a
+        subtitle never shows them.
+        """
+        with self._lock:
+            segments = [s for s in self.assembler.render() if s.kind == "text"]
+
+        seen: list[int] = []
+        for segment in reversed(segments):
+            if segment.chunk_id not in seen:
+                seen.append(segment.chunk_id)
+            if len(seen) == max_chunks:
+                break
+        keep = set(seen)
+        return [s for s in segments if s.chunk_id in keep]
+
+    @property
+    def version(self) -> int:
+        """Increments on every event; lets a UI skip redundant redraws."""
+        with self._lock:
+            return self._version
 
     def snapshot(self) -> dict:
-        return self.metrics.snapshot()
+        with self._lock:
+            return self.metrics.snapshot()
 
     # -- capture callback (delivery thread) --------------------------------
 
@@ -266,8 +300,10 @@ class AudioFlowSession:
             self.flow.release_event(events[index])
 
     def _emit(self, event: Event) -> None:
-        self.assembler.on_event(event)
-        self.metrics.observe(event)
+        with self._lock:
+            self.assembler.on_event(event)
+            self.metrics.observe(event)
+            self._version += 1
         if self.log is not None:
             self.log.write(event, now=time.monotonic())
         if self.on_event is not None:
