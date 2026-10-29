@@ -53,6 +53,7 @@ WS_EX_TRANSPARENT = 0x00000020
 WS_EX_NOACTIVATE = 0x08000000
 WS_EX_TOOLWINDOW = 0x00000080
 VK_CONTROL = 0x11
+LWA_COLORKEY = 0x00000001
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -63,6 +64,11 @@ user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
 user32.GetAsyncKeyState.restype = ctypes.c_short
 user32.GetParent.argtypes = [ctypes.c_void_p]
 user32.GetParent.restype = ctypes.c_void_p
+user32.SetLayeredWindowAttributes.argtypes = [ctypes.c_void_p, ctypes.c_ulong,
+                                              ctypes.c_ubyte, ctypes.c_ulong]
+user32.SetLayeredWindowAttributes.restype = ctypes.c_int
+user32.GetWindowRect.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_long * 4)]
+user32.IsWindowVisible.argtypes = [ctypes.c_void_p]
 kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, ctypes.c_bool, ctypes.c_wchar_p]
 kernel32.CreateMutexW.restype = ctypes.c_void_p
 
@@ -70,6 +76,14 @@ try:
     ctypes.WinDLL("shcore").SetProcessDpiAwareness(2)   # per-monitor aware
 except Exception:  # noqa: BLE001 - older Windows keeps the default
     pass
+
+
+def _colorref(hex_color: str) -> int:
+    """#RRGGBB -> COLORREF (0x00BBGGRR)."""
+    red = int(hex_color[1:3], 16)
+    green = int(hex_color[3:5], 16)
+    blue = int(hex_color[5:7], 16)
+    return red | (green << 8) | (blue << 16)
 
 
 @dataclass
@@ -121,7 +135,6 @@ class Overlay:
             self.config.hide_after_s = 0.0
 
         self.root = tk.Tk()
-        self.root.withdraw()
         self._build_window()
 
         self.session = None
@@ -143,11 +156,6 @@ class Overlay:
 
     def _build_window(self) -> None:
         config = self.config
-        self.root.overrideredirect(True)
-        self.root.attributes("-topmost", True)
-        self.root.attributes("-transparentcolor", KEY_COLOR)
-        self.root.configure(bg=KEY_COLOR)
-
         screen_w = self.root.winfo_screenwidth()
         screen_h = self.root.winfo_screenheight()
         self.width = int(screen_w * config.width_ratio)
@@ -157,30 +165,55 @@ class Overlay:
         state = self._load_state()
         x = state.get("x", (screen_w - self.width) // 2)
         y = state.get("y", screen_h - self.height - config.bottom_margin)
-        self.root.geometry("%dx%d+%d+%d" % (self.width, self.height, x, y))
 
+        # Realise the window at its final size before going borderless: with
+        # overrideredirect set first, Tk can leave the toplevel unmapped at 1x1.
+        self.root.geometry("%dx%d+%d+%d" % (self.width, self.height, x, y))
         self.canvas = tk.Canvas(self.root, width=self.width, height=self.height,
                                 bg=KEY_COLOR, highlightthickness=0, bd=0)
         self.canvas.pack()
+        self.root.update_idletasks()
 
+        self.root.overrideredirect(True)
+        self.root.attributes("-topmost", True)
+        self.root.attributes("-transparentcolor", KEY_COLOR)
         self.root.deiconify()
+        self.root.update()
+
         self._apply_click_through(True)
+        self._log_window_state()
 
     def _toplevel_hwnd(self) -> int:
-        hwnd = self.root.winfo_id()
-        parent = user32.GetParent(ctypes.c_void_p(hwnd))
-        return parent or hwnd
+        frame = self.root.wm_frame()
+        try:
+            handle = int(frame, 16)
+        except (TypeError, ValueError):
+            handle = 0
+        return handle or self.root.winfo_id()
 
     def _apply_click_through(self, enabled: bool) -> None:
         hwnd = self._toplevel_hwnd()
         style = user32.GetWindowLongPtrW(ctypes.c_void_p(hwnd), GWL_EXSTYLE)
-        base = style | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_LAYERED
+        # WS_EX_LAYERED is deliberately left alone: Tk installs it together with
+        # the colour key, and re-setting the style after that drops the layered
+        # attributes, which makes the whole window vanish.
+        base = style | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW
         if enabled:
             base |= WS_EX_TRANSPARENT
         else:
             base &= ~WS_EX_TRANSPARENT
         if base != style:
             user32.SetWindowLongPtrW(ctypes.c_void_p(hwnd), GWL_EXSTYLE, base)
+        user32.SetLayeredWindowAttributes(ctypes.c_void_p(hwnd),
+                                          _colorref(KEY_COLOR), 255, LWA_COLORKEY)
+
+    def _log_window_state(self) -> None:
+        hwnd = self._toplevel_hwnd()
+        rect = (ctypes.c_long * 4)()
+        user32.GetWindowRect(ctypes.c_void_p(hwnd), ctypes.byref(rect))
+        logging.info("window %s visible=%d rect=%d,%d %dx%d",
+                     hex(hwnd), user32.IsWindowVisible(ctypes.c_void_p(hwnd)),
+                     rect[0], rect[1], rect[2] - rect[0], rect[3] - rect[1])
 
     # -- tray --------------------------------------------------------------
 
